@@ -288,23 +288,26 @@ socket.on("player2ChoiceRPS", (data) => {
 });
 
 socket.on("rpsGameResult", (data) => {
-  let winnerMessage;
-  if (data.winner === "draw") {
-    winnerMessage = "It's a draw";
-  } else if (data.winner === "player1") {
-    winnerMessage = isPlayer1Turn ? "You Win" : "You Lose";
-  } else {
-    winnerMessage = isPlayer1Turn ? "You Lose" : "You Win";
-  }
-  document.getElementById("winnerArea").innerText = winnerMessage;
-  document.getElementById("initial").style.display = "none";
-  document.getElementById("gamePlay").style.display = "block";
-  document.getElementById("waitingArea").style.display = "none";
-  document.getElementById("gameArea").style.display = "block";
-  document.getElementById("winnerArea").style.display = "block";
-  document.getElementById("opponentState").style.display = "none";
-  document.getElementById("opponentButton").style.display = "block";
-  document.getElementById("player1Choice").style.display = "block";
+    let winnerMessage;
+
+    if (data.winner === "draw") {
+        winnerMessage = "It's a draw";
+    } else if (data.winner === "player1") {
+        winnerMessage = isPlayer1Turn ? "You Win" : "You Lose";
+    } else {
+        winnerMessage = isPlayer1Turn ? "You Lose" : "You Win";
+    }
+
+    document.getElementById("winnerText").innerText = winnerMessage;
+
+    document.getElementById("initial").style.display = "none";
+    document.getElementById("gamePlay").style.display = "block";
+    document.getElementById("waitingArea").style.display = "none";
+    document.getElementById("gameArea").style.display = "block";
+    document.getElementById("winnerArea").style.display = "block";
+    document.getElementById("opponentState").style.display = "none";
+    document.getElementById("opponentButton").style.display = "block";
+    document.getElementById("player1Choice").style.display = "block";
 });
 
 socket.on("roomDataResponse", (data) => {
@@ -347,3 +350,42 @@ function displayOpponentChoice(choice) {
   opponentButton.innerText = choice;
   document.getElementById("player2Choice").appendChild(opponentButton);
 }
+const newGameBtn = document.getElementById("new-game");
+
+newGameBtn.addEventListener("click", () => {
+    socket.emit("requestNewGameRPS", {
+        roomUniqueId,
+        isPlayer1,
+        playerName
+    });
+});
+
+socket.on("ConfirmNewGameRPS", (data) => {
+
+    if (data.playerName === playerName) return;
+
+    const answer = confirm(`${data.playerName} wants to play again.`);
+
+    socket.emit("NewGameResponseRPS", {
+        response: answer,
+        roomUniqueId
+    });
+});
+
+socket.on("NewGameRPS", () => {
+
+    document.getElementById("player1Choice").innerHTML = `
+        <button onclick="sendChoice('Rock')">Rock</button>
+        <button onclick="sendChoice('Paper')">Paper</button>
+        <button onclick="sendChoice('Scissor')">Scissor</button>
+    `;
+
+    document.getElementById("player2Choice").innerHTML =
+        '<p id="opponentState">Waiting For Opponent....</p>';
+
+    document.getElementById("winnerText").innerText = "";
+    document.getElementById("winnerArea").style.display = "none";
+}); 
+socket.on("CancelNewGameRPS", () => {
+    alert("Opponent declined the new game request.");
+});

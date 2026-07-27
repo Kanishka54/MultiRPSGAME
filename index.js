@@ -253,6 +253,27 @@ io.on("connection", (socket) => {
       console.error("Error requesting RPS room data:", error);
     }
   });
+  socket.on("requestNewGameRPS", (data) => {
+    console.log("New Game Requested:", data.roomUniqueId, data.playerName);
+
+    io.to(data.roomUniqueId).emit("ConfirmNewGameRPS", {
+        isPlayer1: data.isPlayer1,
+        playerName: data.playerName,
+    });
+});
+
+socket.on("NewGameResponseRPS", ({ response, roomUniqueId }) => {
+    console.log("Response:", response);
+
+    if (response) {
+        console.log("Starting new game");
+        io.to(roomUniqueId).emit("NewGameRPS");
+    } else {
+        console.log("New game declined");
+        socket.to(roomUniqueId).emit("CancelNewGameRPS");
+    }
+});
+
 
   // === Tic Tac Toe Events ===
 
