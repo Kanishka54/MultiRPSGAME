@@ -14,6 +14,7 @@ const RPSData = require("./models/RPSData");
 const ChessData = require("./models/ChessData");
 const TicTacToeData = require("./models/TicTacToeData");
 const User = require("./models/User"); // Import User model
+const getRPSWinner = require("./utils/determineRPSWinner");
 
 const app = express();
 const server = http.createServer(app);
@@ -534,44 +535,44 @@ socket.on("NewGameResponseRPS", ({ response, roomUniqueId }) => {
   });
 });
 
-// Determine RPS Winner
 async function determineRPSWinner(roomUniqueId) {
   const room = rpsRooms[roomUniqueId];
+
   const p1 = room.player1Choice;
   const p2 = room.player2Choice;
-  let winner;
 
-  if (p1 === p2) {
-    winner = "draw";
-  } else if (
-    (p1 === "Paper" && p2 === "Rock") ||
-    (p1 === "Rock" && p2 === "Scissors") ||
-    (p1 === "Scissors" && p2 === "Paper")
-  ) {
-    winner = "player1";
-  } else {
-    winner = "player2";
-  }
+  // Get winner from the utility function
+  const winner = getRPSWinner(p1, p2);
 
+  // Send result to both players
   io.to(roomUniqueId).emit("rpsGameResult", { winner });
 
   // Reset choices
   room.player1Choice = null;
   room.player2Choice = null;
 
-  // Update game data in DB
-  await RPSData.findOneAndUpdate({ roomUniqueId }, { winner });
+  // Save winner in MongoDB
+  await RPSData.findOneAndUpdate(
+    { roomUniqueId },
+    { winner }
+  );
 
-  // CHECK THIS ***********
-  // Update games played and level for both players
+  // Get players' information
   const gameData = await RPSData.findOne({ roomUniqueId });
+
   if (gameData) {
-    const player1 = await User.findOne({ username: gameData.player1Name });
-    const player2 = await User.findOne({ username: gameData.player2Name });
+    const player1 = await User.findOne({
+      username: gameData.player1Name,
+    });
+
+    const player2 = await User.findOne({
+      username: gameData.player2Name,
+    });
 
     if (player1) {
       updateUserGameCount(player1._id);
     }
+
     if (player2) {
       updateUserGameCount(player2._id);
     }
