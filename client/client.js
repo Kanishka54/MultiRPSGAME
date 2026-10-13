@@ -4,6 +4,7 @@ const socket = io();
 
 let roomUniqueId;
 let isPlayer1 = false;
+let hasSubmittedChoice = false;
 let player1Name = "SAMPLE";
 let player2Name = "SAMPLE";
 let isPlayer1Turn = false;
@@ -275,19 +276,25 @@ socket.on("playersConnectedRPS", (data) => {
   }
 });
 
-socket.on("player1ChoiceRPS", (data) => {
-  if (!isPlayer1Turn) {
-    displayOpponentChoice(data.choice);
+socket.on("rpsChoiceSubmitted", () => {
+  const opponentState = document.getElementById("opponentState");
+  if (opponentState) {
+    opponentState.innerText = "Opponent Made A Choice";
   }
 });
 
-socket.on("player2ChoiceRPS", (data) => {
-  if (isPlayer1Turn) {
-    displayOpponentChoice(data.choice);
-  }
+socket.on("rpsChoiceRejected", () => {
+  hasSubmittedChoice = false;
+  document.getElementById("player1Choice").innerHTML = `
+        <button onclick="sendChoice('Rock')">Rock</button>
+        <button onclick="sendChoice('Paper')">Paper</button>
+        <button onclick="sendChoice('Scissors')">Scissors</button>
+    `;
 });
 
 socket.on("rpsGameResult", (data) => {
+    const myChoice = isPlayer1Turn ? data.player1Choice : data.player2Choice;
+    const opponentChoice = isPlayer1Turn ? data.player2Choice : data.player1Choice;
     let winnerMessage;
 
     if (data.winner === "draw") {
@@ -298,6 +305,9 @@ socket.on("rpsGameResult", (data) => {
         winnerMessage = isPlayer1Turn ? "You Lose" : "You Win";
     }
 
+    displayPlayerChoice(myChoice);
+    revealOpponentChoice(opponentChoice);
+
     document.getElementById("winnerText").innerText = winnerMessage;
 
     document.getElementById("initial").style.display = "none";
@@ -305,8 +315,6 @@ socket.on("rpsGameResult", (data) => {
     document.getElementById("waitingArea").style.display = "none";
     document.getElementById("gameArea").style.display = "block";
     document.getElementById("winnerArea").style.display = "block";
-    document.getElementById("opponentState").style.display = "none";
-    document.getElementById("opponentButton").style.display = "block";
     document.getElementById("player1Choice").style.display = "block";
 });
 
@@ -329,8 +337,9 @@ socket.on("FullRPS", () => {
 });
 
 function sendChoice(choice) {
-  const choiceEvent = isPlayer1Turn ? "player1ChoiceRPS" : "player2ChoiceRPS";
-  socket.emit(choiceEvent, { choice: choice, roomUniqueId });
+  if (hasSubmittedChoice) return;
+  hasSubmittedChoice = true;
+  socket.emit("submitRPSChoice", { choice: choice, roomUniqueId });
   displayPlayerChoice(choice);
 }
 
@@ -342,13 +351,14 @@ function displayPlayerChoice(choice) {
   document.getElementById("player1Choice").appendChild(playerChoiceButton);
 }
 
-function displayOpponentChoice(choice) {
-  document.getElementById("opponentState").innerText = "Opponent Made A Choice";
+function revealOpponentChoice(choice) {
+  const opponentArea = document.getElementById("player2Choice");
+  opponentArea.innerHTML = "";
   const opponentButton = document.createElement("button");
   opponentButton.id = "opponentButton";
-  opponentButton.style.display = "none";
+  opponentButton.style.display = "block";
   opponentButton.innerText = choice;
-  document.getElementById("player2Choice").appendChild(opponentButton);
+  opponentArea.appendChild(opponentButton);
 }
 const newGameBtn = document.getElementById("new-game");
 
@@ -373,11 +383,12 @@ socket.on("ConfirmNewGameRPS", (data) => {
 });
 
 socket.on("NewGameRPS", () => {
+    hasSubmittedChoice = false;
 
     document.getElementById("player1Choice").innerHTML = `
         <button onclick="sendChoice('Rock')">Rock</button>
         <button onclick="sendChoice('Paper')">Paper</button>
-        <button onclick="sendChoice('Scissor')">Scissor</button>
+        <button onclick="sendChoice('Scissors')">Scissors</button>
     `;
 
     document.getElementById("player2Choice").innerHTML =

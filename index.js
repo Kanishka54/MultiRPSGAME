@@ -14,7 +14,7 @@ const RPSData = require("./models/RPSData");
 const ChessData = require("./models/ChessData");
 const TicTacToeData = require("./models/TicTacToeData");
 const User = require("./models/User"); // Import User model
-const getRPSWinner = require("./utils/determineRPSWinner");
+const { submitRPSChoice, openRPSRound } = require("./utils/submitRPSChoice");
 
 const app = express();
 const server = http.createServer(app);
@@ -166,7 +166,14 @@ io.on("connection", (socket) => {
   socket.on("createRPSGame", async (data) => {
     try {
       const roomUniqueId = generateRoomId(5);
-      rpsRooms[roomUniqueId] = { player1: data.playerName, capacity: true };
+      rpsRooms[roomUniqueId] = {
+        player1: data.playerName,
+        player1SocketId: socket.id,
+        capacity: true,
+        player1Choice: null,
+        player2Choice: null,
+        roundClosed: false,
+      };
 
       socket.join(roomUniqueId);
       socket.emit("newRPSGame", { roomUniqueId });
@@ -188,6 +195,7 @@ io.on("connection", (socket) => {
       if (room) {
         if (room.capacity === true) {
           room.player2 = data.playerName;
+          room.player2SocketId = socket.id;
           socket.join(data.roomUniqueId);
           io.to(data.roomUniqueId).emit("playersConnectedRPS");
           socket.emit("playersConnectedRPS");
@@ -205,50 +213,38 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Player 1 RPS Choice
-  socket.on("player1ChoiceRPS", async (data) => {
+  socket.on("submitRPSChoice", async (data) => {
     try {
-      const room = rpsRooms[data.roomUniqueId];
-      room.player1Choice = data.choice;
-      socket
-        .to(data.roomUniqueId)
-        .emit("player1ChoiceRPS", { choice: data.choice });
-      if (room.player2Choice) {
-        await determineRPSWinner(data.roomUniqueId);
-      }
-      await RPSData.findOneAndUpdate(
-        { roomUniqueId: data.roomUniqueId },
-        { player1Choice: data.choice }
-      );
-    } catch (error) {
-      console.error("Error handling player 1 RPS choice:", error);
-    }
-  });
+      const payload = data || {};
+      const room = rpsRooms[payload.roomUniqueId];
+      const outcome = submitRPSChoice(room, socket.id, payload.choice);
 
-  // Player 2 RPS Choice
-  socket.on("player2ChoiceRPS", async (data) => {
-    try {
-      const room = rpsRooms[data.roomUniqueId];
-      room.player2Choice = data.choice;
-      socket
-        .to(data.roomUniqueId)
-        .emit("player2ChoiceRPS", { choice: data.choice });
-      if (room.player1Choice) {
-        await determineRPSWinner(data.roomUniqueId);
+      if (!outcome.ok) {
+        socket.emit("rpsChoiceRejected", { reason: outcome.reason });
+        return;
       }
-      await RPSData.findOneAndUpdate(
-        { roomUniqueId: data.roomUniqueId },
-        { player2Choice: data.choice }
-      );
+
+      if (outcome.opponentNotice) {
+        socket
+          .to(payload.roomUniqueId)
+          .emit("rpsChoiceSubmitted", outcome.opponentNotice);
+        return;
+      }
+
+      await finishRPSRound(payload.roomUniqueId, outcome.result);
     } catch (error) {
-      console.error("Error handling player 2 RPS choice:", error);
+      console.error("Error handling RPS choice:", error);
     }
   });
 
   // Request Room Data for RPS
   socket.on("requestRPSRoomData", async ({ roomUniqueId }) => {
     try {
-      const roomData = await RPSData.findOne({ roomUniqueId });
+      const roomData = await RPSData.findOne({ roomUniqueId }).lean();
+      if (roomData) {
+        delete roomData.player1Choice;
+        delete roomData.player2Choice;
+      }
       socket.emit("roomDataResponse", { roomData });
     } catch (error) {
       console.error("Error requesting RPS room data:", error);
@@ -268,6 +264,7 @@ socket.on("NewGameResponseRPS", ({ response, roomUniqueId }) => {
 
     if (response) {
         console.log("Starting new game");
+        openRPSRound(rpsRooms[roomUniqueId]);
         io.to(roomUniqueId).emit("NewGameRPS");
     } else {
         console.log("New game declined");
@@ -535,26 +532,20 @@ socket.on("NewGameResponseRPS", ({ response, roomUniqueId }) => {
   });
 });
 
-async function determineRPSWinner(roomUniqueId) {
-  const room = rpsRooms[roomUniqueId];
+async function finishRPSRound(roomUniqueId, result) {
+  io.to(roomUniqueId).emit("rpsGameResult", {
+    winner: result.winner,
+    player1Choice: result.player1Choice,
+    player2Choice: result.player2Choice,
+  });
 
-  const p1 = room.player1Choice;
-  const p2 = room.player2Choice;
-
-  // Get winner from the utility function
-  const winner = getRPSWinner(p1, p2);
-
-  // Send result to both players
-  io.to(roomUniqueId).emit("rpsGameResult", { winner });
-
-  // Reset choices
-  room.player1Choice = null;
-  room.player2Choice = null;
-
-  // Save winner in MongoDB
   await RPSData.findOneAndUpdate(
     { roomUniqueId },
-    { winner }
+    {
+      winner: result.winner,
+      player1Choice: result.player1Choice,
+      player2Choice: result.player2Choice,
+    }
   );
 
   // Get players' information

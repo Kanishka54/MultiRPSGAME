@@ -27,5 +27,7 @@ describe("Rock Paper Scissors winner logic", () => {
 
   test("Same choices result in a draw", () => {
     expect(getRPSWinner("Rock", "Rock")).toBe("draw");
+    expect(getRPSWinner("Paper", "Paper")).toBe("draw");
+    expect(getRPSWinner("Scissors", "Scissors")).toBe("draw");
   });
 });
