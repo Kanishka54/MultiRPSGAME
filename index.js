@@ -14,7 +14,12 @@ const RPSData = require("./models/RPSData");
 const ChessData = require("./models/ChessData");
 const TicTacToeData = require("./models/TicTacToeData");
 const User = require("./models/User"); // Import User model
-const { submitRPSChoice, openRPSRound } = require("./utils/submitRPSChoice");
+const { submitRPSChoice } = require("./utils/submitRPSChoice");
+const {
+  removeRPSRoomsForSocket,
+  requestRPSRematch,
+  respondRPSRematch,
+} = require("./utils/rpsRoom");
 
 const app = express();
 const server = http.createServer(app);
@@ -158,6 +163,12 @@ io.on("connection", (socket) => {
         break;
       }
     }
+
+    const removedRoomIds = removeRPSRoomsForSocket(rpsRooms, socket.id);
+    removedRoomIds.forEach((roomId) => {
+      io.to(roomId).emit("rpsOpponentLeft");
+      io.socketsLeave(roomId);
+    });
   });
 
   // === Rock Paper Scissors (RPS) Events ===
@@ -251,24 +262,41 @@ io.on("connection", (socket) => {
     }
   });
   socket.on("requestNewGameRPS", (data) => {
-    console.log("New Game Requested:", data.roomUniqueId, data.playerName);
+    const payload = data || {};
+    const decision = requestRPSRematch(rpsRooms, payload.roomUniqueId);
+    if (!decision.ok) {
+      socket.emit("rpsRematchRejected", { reason: decision.reason });
+      return;
+    }
 
-    io.to(data.roomUniqueId).emit("ConfirmNewGameRPS", {
-        isPlayer1: data.isPlayer1,
-        playerName: data.playerName,
+    console.log("New Game Requested:", payload.roomUniqueId, payload.playerName);
+
+    io.to(payload.roomUniqueId).emit("ConfirmNewGameRPS", {
+        isPlayer1: payload.isPlayer1,
+        playerName: payload.playerName,
     });
 });
 
-socket.on("NewGameResponseRPS", ({ response, roomUniqueId }) => {
-    console.log("Response:", response);
+socket.on("NewGameResponseRPS", (data) => {
+    const payload = data || {};
+    const decision = respondRPSRematch(
+      rpsRooms,
+      payload.roomUniqueId,
+      payload.response
+    );
+    if (!decision.ok) {
+      socket.emit("rpsRematchRejected", { reason: decision.reason });
+      return;
+    }
 
-    if (response) {
+    console.log("Response:", payload.response);
+
+    if (decision.start) {
         console.log("Starting new game");
-        openRPSRound(rpsRooms[roomUniqueId]);
-        io.to(roomUniqueId).emit("NewGameRPS");
+        io.to(payload.roomUniqueId).emit("NewGameRPS");
     } else {
         console.log("New game declined");
-        socket.to(roomUniqueId).emit("CancelNewGameRPS");
+        socket.to(payload.roomUniqueId).emit("CancelNewGameRPS");
     }
 });
 

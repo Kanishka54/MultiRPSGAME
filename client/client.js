@@ -400,3 +400,35 @@ socket.on("NewGameRPS", () => {
 socket.on("CancelNewGameRPS", () => {
     alert("Opponent declined the new game request.");
 });
+
+function resetRPSToLobby() {
+  hasSubmittedChoice = false;
+  isPlayer1Turn = false;
+  roomUniqueId = undefined;
+
+  document.getElementById("initial").style.display = "block";
+  document.getElementById("gamePlay").style.display = "none";
+  document.getElementById("waitingArea").innerHTML = "";
+  document.getElementById("gameArea").style.display = "none";
+  document.getElementById("winnerArea").style.display = "none";
+  document.getElementById("winnerText").innerText = "";
+  document.getElementById("player1Choice").innerHTML = `
+        <button onclick="sendChoice('Rock')">Rock</button>
+        <button onclick="sendChoice('Paper')">Paper</button>
+        <button onclick="sendChoice('Scissors')">Scissors</button>
+    `;
+  document.getElementById("player2Choice").innerHTML =
+    '<p id="opponentState">Waiting For Opponent....</p>';
+}
+
+socket.on("rpsOpponentLeft", () => {
+  resetRPSToLobby();
+  alert("Your opponent disconnected. Please create or join a new game.");
+});
+
+socket.on("rpsRematchRejected", () => {
+  const gamePlay = document.getElementById("gamePlay");
+  if (gamePlay && gamePlay.style.display !== "none") {
+    resetRPSToLobby();
+  }
+});
