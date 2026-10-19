@@ -9,10 +9,17 @@ const WIN_LINES = [
   [6, 7, 8],
 ];
 
-function createSoloTicTacToe() {
+const COMPUTER_DIFFICULTIES = ["easy", "hard"];
+
+function isComputerDifficulty(difficulty) {
+  return COMPUTER_DIFFICULTIES.includes(difficulty);
+}
+
+function createSoloTicTacToe(difficulty = "easy") {
   return {
     board: Array(9).fill(null),
     status: "playing",
+    difficulty: isComputerDifficulty(difficulty) ? difficulty : "easy",
   };
 }
 
@@ -41,7 +48,7 @@ function boardResult(board) {
   return "playing";
 }
 
-function playEasyComputerTurn(game, cellIndex, random = Math.random) {
+function rejectComputerMove(game, cellIndex) {
   if (!game) {
     return { ok: false, reason: "no-game" };
   }
@@ -58,13 +65,18 @@ function playEasyComputerTurn(game, cellIndex, random = Math.random) {
     return { ok: false, reason: "occupied" };
   }
 
+  return null;
+}
+
+function placeComputerMark(game, cellIndex, chooseMove) {
+  const rejected = rejectComputerMove(game, cellIndex);
+  if (rejected) return rejected;
+
   game.board[cellIndex] = "X";
   let result = boardResult(game.board);
 
   if (result === "playing") {
-    const open = emptyCells(game.board);
-    const pick = open[Math.floor(random() * open.length)];
-    game.board[pick] = "O";
+    game.board[chooseMove(game.board)] = "O";
     result = boardResult(game.board);
   }
 
@@ -77,8 +89,29 @@ function playEasyComputerTurn(game, cellIndex, random = Math.random) {
   };
 }
 
+function playEasyComputerTurn(game, cellIndex, random = Math.random) {
+  return placeComputerMark(game, cellIndex, (board) => {
+    const open = emptyCells(board);
+    return open[Math.floor(random() * open.length)];
+  });
+}
+
+function playComputerTurn(game, cellIndex, random = Math.random) {
+  if (game && game.difficulty === "hard") {
+    return placeComputerMark(game, cellIndex, (board) =>
+      require("./minimaxTicTacToe").chooseMinimaxMove(board)
+    );
+  }
+
+  return playEasyComputerTurn(game, cellIndex, random);
+}
+
 module.exports = {
   createSoloTicTacToe,
   playEasyComputerTurn,
+  playComputerTurn,
+  isComputerDifficulty,
+  boardResult,
+  emptyCells,
   WIN_LINES,
 };

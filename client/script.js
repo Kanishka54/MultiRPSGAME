@@ -12,6 +12,7 @@ let isPlayer1Turn = true;
 let count = 0;
 let ok = false;
 let computerMode = false;
+let computerDifficulty = "easy";
 let tttComputerWaiting = false;
 let tttComputerOver = false;
 
@@ -238,6 +239,7 @@ function showModeSelect() {
   tttComputerOver = false;
   document.getElementById("xyz").style.display = "block";
   document.getElementById("modeSelect").style.display = "block";
+  document.getElementById("computerDifficulty").style.display = "none";
   document.getElementById("initial").style.display = "none";
   document.getElementById("gamePlay").style.display = "none";
   document.getElementById("computerControls").style.display = "none";
@@ -246,9 +248,16 @@ function showModeSelect() {
 
 function showFriendMode() {
   document.getElementById("modeSelect").style.display = "none";
+  document.getElementById("computerDifficulty").style.display = "none";
   document.getElementById("computerControls").style.display = "none";
   document.querySelector("main").style.display = "none";
   document.getElementById("initial").style.display = "block";
+}
+
+function showComputerDifficulties() {
+  document.getElementById("modeSelect").style.display = "none";
+  document.getElementById("initial").style.display = "none";
+  document.getElementById("computerDifficulty").style.display = "block";
 }
 
 function showComputerBoard() {
@@ -289,18 +298,22 @@ function applyComputerState(data) {
   }
 }
 
-function startComputerMode() {
+function startComputerMode(difficulty) {
   if (!socket.connected) {
     showComputerNotice("You are disconnected. Start a new game after you reconnect.");
     return;
   }
   computerMode = true;
+  computerDifficulty = difficulty;
   tttComputerOver = false;
   tttComputerWaiting = true;
   showComputerNotice("");
   showComputerBoard();
+  document.getElementById("computerDifficulty").style.display = "none";
+  document.getElementById("tttComputerDifficulty").innerText =
+    difficulty === "hard" ? "Hard" : "Easy";
   document.getElementById("tttComputerStatus").innerText = "You are X. Computer is O.";
-  socket.emit("startTicTacToeComputer");
+  socket.emit("startTicTacToeComputer", { difficulty: difficulty });
 }
 
 function playComputerAgain() {
@@ -816,6 +829,12 @@ socket.on("tttComputerRejected", (data) => {
     enabledBtn();
     showModeSelect();
     showComputerNotice("That computer game is no longer available. Start a new one.");
+    return;
+  }
+  if (data && data.reason === "invalid-difficulty") {
+    enabledBtn();
+    showModeSelect();
+    showComputerNotice("Choose Easy or Hard before starting.");
   }
 });
 

@@ -23,7 +23,8 @@ const {
 } = require("./utils/rpsRoom");
 const {
   createSoloTicTacToe,
-  playEasyComputerTurn,
+  playComputerTurn,
+  isComputerDifficulty,
 } = require("./utils/playTicTacToeAgainstComputer");
 
 const app = express();
@@ -333,13 +334,25 @@ socket.on("NewGameResponseRPS", (data) => {
     });
   }
 
-  socket.on("startTicTacToeComputer", () => {
-    soloTicTacToeGames[socket.id] = createSoloTicTacToe();
+  socket.on("startTicTacToeComputer", (data) => {
+    const difficulty = data && data.difficulty;
+    if (!isComputerDifficulty(difficulty)) {
+      socket.emit("tttComputerRejected", { reason: "invalid-difficulty" });
+      return;
+    }
+
+    soloTicTacToeGames[socket.id] = createSoloTicTacToe(difficulty);
     sendSoloTicTacToe(soloTicTacToeGames[socket.id]);
   });
 
   socket.on("resetTicTacToeComputer", () => {
-    soloTicTacToeGames[socket.id] = createSoloTicTacToe();
+    const existing = soloTicTacToeGames[socket.id];
+    if (!existing) {
+      socket.emit("tttComputerRejected", { reason: "no-game" });
+      return;
+    }
+
+    soloTicTacToeGames[socket.id] = createSoloTicTacToe(existing.difficulty);
     sendSoloTicTacToe(soloTicTacToeGames[socket.id]);
   });
 
@@ -349,7 +362,7 @@ socket.on("NewGameResponseRPS", (data) => {
 
   socket.on("tttComputerMove", (data) => {
     const game = soloTicTacToeGames[socket.id];
-    const outcome = playEasyComputerTurn(game, data && data.index);
+    const outcome = playComputerTurn(game, data && data.index);
 
     if (!outcome.ok) {
       socket.emit("tttComputerRejected", { reason: outcome.reason });

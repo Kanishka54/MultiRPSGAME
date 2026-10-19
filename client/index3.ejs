@@ -35,7 +35,12 @@
       <div id="modeSelect" class="card">
         <p id="tttComputerNotice"></p>
         <button onclick="showFriendMode()">Play with Friend</button>
-        <button onclick="startComputerMode()">Play with Computer — Easy</button>
+        <button onclick="showComputerDifficulties()">Play with Computer</button>
+      </div>
+      <div id="computerDifficulty" class="card" style="display: none">
+        <button onclick="startComputerMode('easy')">Easy</button>
+        <button onclick="startComputerMode('hard')">Hard</button>
+        <button onclick="showModeSelect()">Back</button>
       </div>
       <div id="initial" class="card" style="display: none">
         <input
@@ -58,6 +63,7 @@
       </div>
 
       <div id="computerControls" class="card" style="display: none">
+        <p id="tttComputerDifficulty"></p>
         <p id="tttComputerStatus">You are X. Computer is O.</p>
         <button onclick="playComputerAgain()">Play Again</button>
         <button onclick="leaveComputerMode()">Back</button>
