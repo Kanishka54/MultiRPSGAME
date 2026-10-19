@@ -11,6 +11,9 @@ let player2Name = "SAMPLE";
 let isPlayer1Turn = true;
 let count = 0;
 let ok = false;
+let computerMode = false;
+let tttComputerWaiting = false;
+let tttComputerOver = false;
 
 const boxes = document.querySelectorAll(".box");
 const resetButton = document.querySelector("#reset-btn");
@@ -223,6 +226,108 @@ const getBoxesState = () => {
 const disableBoxes = () => {
   boxes.forEach((box) => (box.disabled = true));
 };
+
+function showComputerNotice(message) {
+  const notice = document.getElementById("tttComputerNotice");
+  if (notice) notice.innerText = message;
+}
+
+function showModeSelect() {
+  computerMode = false;
+  tttComputerWaiting = false;
+  tttComputerOver = false;
+  document.getElementById("xyz").style.display = "block";
+  document.getElementById("modeSelect").style.display = "block";
+  document.getElementById("initial").style.display = "none";
+  document.getElementById("gamePlay").style.display = "none";
+  document.getElementById("computerControls").style.display = "none";
+  document.querySelector("main").style.display = "none";
+}
+
+function showFriendMode() {
+  document.getElementById("modeSelect").style.display = "none";
+  document.getElementById("computerControls").style.display = "none";
+  document.querySelector("main").style.display = "none";
+  document.getElementById("initial").style.display = "block";
+}
+
+function showComputerBoard() {
+  document.getElementById("modeSelect").style.display = "none";
+  document.getElementById("initial").style.display = "none";
+  document.getElementById("gamePlay").style.display = "none";
+  document.getElementById("computerControls").style.display = "block";
+  document.getElementById("gameAreaD").style.display = "none";
+  document.getElementById("btnreset").style.display = "none";
+  document.querySelector("main").style.display = "block";
+  document.getElementById("xyz").style.display = "block";
+  messageContainer.classList.add("hide");
+}
+
+function renderComputerBoard(board) {
+  updateBoxes(board.map((cell) => cell || ""));
+}
+
+function applyComputerState(data) {
+  tttComputerWaiting = false;
+  renderComputerBoard(data.board);
+  const status = document.getElementById("tttComputerStatus");
+  if (data.result === "x-win") {
+    tttComputerOver = true;
+    status.innerText = "You win";
+    disableBoxes();
+  } else if (data.result === "o-win") {
+    tttComputerOver = true;
+    status.innerText = "Computer wins";
+    disableBoxes();
+  } else if (data.result === "draw") {
+    tttComputerOver = true;
+    status.innerText = "It's a draw";
+    disableBoxes();
+  } else {
+    tttComputerOver = false;
+    status.innerText = "You are X. Your turn.";
+  }
+}
+
+function startComputerMode() {
+  if (!socket.connected) {
+    showComputerNotice("You are disconnected. Start a new game after you reconnect.");
+    return;
+  }
+  computerMode = true;
+  tttComputerOver = false;
+  tttComputerWaiting = true;
+  showComputerNotice("");
+  showComputerBoard();
+  document.getElementById("tttComputerStatus").innerText = "You are X. Computer is O.";
+  socket.emit("startTicTacToeComputer");
+}
+
+function playComputerAgain() {
+  if (!computerMode || tttComputerWaiting) return;
+  if (!socket.connected) {
+    showModeSelect();
+    showComputerNotice("You are disconnected. Start a new game after you reconnect.");
+    return;
+  }
+  tttComputerOver = false;
+  tttComputerWaiting = true;
+  socket.emit("resetTicTacToeComputer");
+}
+
+function leaveComputerMode() {
+  if (socket.connected) {
+    socket.emit("leaveTicTacToeComputer");
+  }
+  enabledBtn();
+  showModeSelect();
+}
+
+function sendComputerCell(index) {
+  if (!computerMode || tttComputerWaiting || tttComputerOver) return;
+  tttComputerWaiting = true;
+  socket.emit("tttComputerMove", { index: index });
+}
 
 function createGame() {
   isPlayer1 = true;
@@ -568,6 +673,8 @@ socket.on("playersConnectingTicTacToe", (data) => {
 // });
 
 socket.on("playersConnectedTicTacToe", (data) => {
+  computerMode = false;
+  document.getElementById("computerControls").style.display = "none";
   document.getElementById("initial").style.display = "none";
   document.getElementById("gamePlay").style.display = "none";
   document.getElementById("waitingArea").style.display = "none";
@@ -698,10 +805,35 @@ socket.on("FullTicTacToe", () => {
   roomCapapcity();
 });
 
+socket.on("tttComputerState", (data) => {
+  if (!computerMode) return;
+  applyComputerState(data);
+});
+
+socket.on("tttComputerRejected", (data) => {
+  tttComputerWaiting = false;
+  if (data && data.reason === "no-game") {
+    enabledBtn();
+    showModeSelect();
+    showComputerNotice("That computer game is no longer available. Start a new one.");
+  }
+});
+
+socket.on("disconnect", () => {
+  if (!computerMode) return;
+  enabledBtn();
+  showModeSelect();
+  showComputerNotice("You disconnected. Start a new game after you reconnect.");
+});
+
 // Add click event listeners to each box
 
 boxes.forEach((box, index) => {
   box.addEventListener("click", () => {
+    if (computerMode) {
+      sendComputerCell(index);
+      return;
+    }
     if (isPlayer1Turn && isPlayer1) {
       box.innerText = "O";
       box.classList.add("box0");

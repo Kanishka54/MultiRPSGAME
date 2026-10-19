@@ -32,7 +32,12 @@
       <header>
         <h1 id="mainTitle">Tic Tac Toe</h1>
       </header>
-      <div id="initial" class="card">
+      <div id="modeSelect" class="card">
+        <p id="tttComputerNotice"></p>
+        <button onclick="showFriendMode()">Play with Friend</button>
+        <button onclick="startComputerMode()">Play with Computer — Easy</button>
+      </div>
+      <div id="initial" class="card" style="display: none">
         <input
           type="text"
           id="playerName"
@@ -49,6 +54,13 @@
           required
         />
         <button onclick="joinGame();">Join Game</button>
+        <button onclick="showModeSelect()">Back</button>
+      </div>
+
+      <div id="computerControls" class="card" style="display: none">
+        <p id="tttComputerStatus">You are X. Computer is O.</p>
+        <button onclick="playComputerAgain()">Play Again</button>
+        <button onclick="leaveComputerMode()">Back</button>
       </div>
 
       <div id="gamePlay" class="card" style="display: none">

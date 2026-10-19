@@ -21,6 +21,10 @@ const {
   requestRPSRematch,
   respondRPSRematch,
 } = require("./utils/rpsRoom");
+const {
+  createSoloTicTacToe,
+  playEasyComputerTurn,
+} = require("./utils/playTicTacToeAgainstComputer");
 
 const app = express();
 const server = http.createServer(app);
@@ -30,6 +34,7 @@ const PORT = process.env.PORT || 8080;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const chessRooms = {};
 const ticTacToeRooms = {};
+const soloTicTacToeGames = {};
 const rpsRooms = {};
 const LEVEL_UP_THRESHOLD = 10; // Number of games to level up
 
@@ -170,6 +175,8 @@ io.on("connection", (socket) => {
       io.to(roomId).emit("rpsOpponentLeft");
       io.socketsLeave(roomId);
     });
+
+    delete soloTicTacToeGames[socket.id];
   });
 
   // === Rock Paper Scissors (RPS) Events ===
@@ -317,6 +324,40 @@ socket.on("NewGameResponseRPS", (data) => {
     }
 });
 
+
+  function sendSoloTicTacToe(game) {
+    socket.emit("tttComputerState", {
+      ok: true,
+      board: game.board.slice(),
+      result: game.status,
+    });
+  }
+
+  socket.on("startTicTacToeComputer", () => {
+    soloTicTacToeGames[socket.id] = createSoloTicTacToe();
+    sendSoloTicTacToe(soloTicTacToeGames[socket.id]);
+  });
+
+  socket.on("resetTicTacToeComputer", () => {
+    soloTicTacToeGames[socket.id] = createSoloTicTacToe();
+    sendSoloTicTacToe(soloTicTacToeGames[socket.id]);
+  });
+
+  socket.on("leaveTicTacToeComputer", () => {
+    delete soloTicTacToeGames[socket.id];
+  });
+
+  socket.on("tttComputerMove", (data) => {
+    const game = soloTicTacToeGames[socket.id];
+    const outcome = playEasyComputerTurn(game, data && data.index);
+
+    if (!outcome.ok) {
+      socket.emit("tttComputerRejected", { reason: outcome.reason });
+      return;
+    }
+
+    socket.emit("tttComputerState", outcome);
+  });
 
   // === Tic Tac Toe Events ===
 
