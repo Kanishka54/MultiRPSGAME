@@ -15,11 +15,17 @@ function isComputerDifficulty(difficulty) {
   return COMPUTER_DIFFICULTIES.includes(difficulty);
 }
 
+let nextSoloGameId = 1;
+
 function createSoloTicTacToe(difficulty = "easy") {
   return {
+    id: nextSoloGameId++,
     board: Array(9).fill(null),
     status: "playing",
     difficulty: isComputerDifficulty(difficulty) ? difficulty : "easy",
+    endsAt: null,
+    timeout: null,
+    timerToken: 0,
   };
 }
 
@@ -68,42 +74,74 @@ function rejectComputerMove(game, cellIndex) {
   return null;
 }
 
-function placeComputerMark(game, cellIndex, chooseMove) {
+function isExpired(game, now) {
+  return typeof game.endsAt === "number" && now >= game.endsAt;
+}
+
+function movePayload(game, ok, fields) {
+  const payload = {
+    ok,
+    board: game.board.slice(),
+    ...fields,
+  };
+  if (typeof game.endsAt === "number") payload.endsAt = game.endsAt;
+  return payload;
+}
+
+function placeComputerMark(game, cellIndex, chooseMove, now = () => Date.now()) {
   const rejected = rejectComputerMove(game, cellIndex);
   if (rejected) return rejected;
+
+  if (isExpired(game, now())) {
+    game.status = "time-up";
+    return movePayload(game, false, { reason: "time-up", result: "time-up" });
+  }
 
   game.board[cellIndex] = "X";
   let result = boardResult(game.board);
 
-  if (result === "playing") {
-    game.board[chooseMove(game.board)] = "O";
-    result = boardResult(game.board);
+  if (result !== "playing") {
+    game.status = result;
+    return movePayload(game, true, { result });
   }
 
+  const pick = chooseMove(game.board);
+
+  if (isExpired(game, now())) {
+    game.status = "time-up";
+    return movePayload(game, true, { result: "time-up" });
+  }
+
+  game.board[pick] = "O";
+  result = boardResult(game.board);
   game.status = result;
 
-  return {
-    ok: true,
-    board: game.board.slice(),
-    result,
-  };
+  return movePayload(game, true, { result });
 }
 
-function playEasyComputerTurn(game, cellIndex, random = Math.random) {
-  return placeComputerMark(game, cellIndex, (board) => {
-    const open = emptyCells(board);
-    return open[Math.floor(random() * open.length)];
-  });
+function playEasyComputerTurn(game, cellIndex, random = Math.random, now) {
+  return placeComputerMark(
+    game,
+    cellIndex,
+    (board) => {
+      const open = emptyCells(board);
+      return open[Math.floor(random() * open.length)];
+    },
+    now
+  );
 }
 
-function playComputerTurn(game, cellIndex, random = Math.random) {
+function playComputerTurn(game, cellIndex, random = Math.random, now) {
   if (game && game.difficulty === "hard") {
-    return placeComputerMark(game, cellIndex, (board) =>
-      require("./minimaxTicTacToe").chooseMinimaxMove(board)
+    return placeComputerMark(
+      game,
+      cellIndex,
+      (board) => require("./minimaxTicTacToe").chooseMinimaxMove(board),
+      now
     );
   }
 
-  return playEasyComputerTurn(game, cellIndex, random);
+  return playEasyComputerTurn(game, cellIndex, random, now);
 }
 
 module.exports = {

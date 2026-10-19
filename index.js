@@ -26,6 +26,10 @@ const {
   playComputerTurn,
   isComputerDifficulty,
 } = require("./utils/playTicTacToeAgainstComputer");
+const {
+  startComputerMatchClock,
+  clearComputerMatchClock,
+} = require("./utils/ticTacToeComputerClock");
 
 const app = express();
 const server = http.createServer(app);
@@ -177,6 +181,7 @@ io.on("connection", (socket) => {
       io.socketsLeave(roomId);
     });
 
+    clearComputerMatchClock(soloTicTacToeGames[socket.id]);
     delete soloTicTacToeGames[socket.id];
   });
 
@@ -326,12 +331,32 @@ socket.on("NewGameResponseRPS", (data) => {
 });
 
 
-  function sendSoloTicTacToe(game) {
+  function publishSoloTicTacToe(game) {
     socket.emit("tttComputerState", {
       ok: true,
       board: game.board.slice(),
       result: game.status,
+      endsAt: game.endsAt,
+      serverNow: Date.now(),
+      gameId: game.id,
     });
+  }
+
+  function beginSoloTicTacToe(difficulty) {
+    const previous = soloTicTacToeGames[socket.id];
+    clearComputerMatchClock(previous);
+
+    const game = createSoloTicTacToe(difficulty);
+    soloTicTacToeGames[socket.id] = game;
+    startComputerMatchClock(game, {
+      isCurrent: (current) => soloTicTacToeGames[socket.id] === current,
+      onExpire() {
+        if (soloTicTacToeGames[socket.id] !== game) return;
+        clearComputerMatchClock(game);
+        publishSoloTicTacToe(game);
+      },
+    });
+    publishSoloTicTacToe(game);
   }
 
   socket.on("startTicTacToeComputer", (data) => {
@@ -341,8 +366,7 @@ socket.on("NewGameResponseRPS", (data) => {
       return;
     }
 
-    soloTicTacToeGames[socket.id] = createSoloTicTacToe(difficulty);
-    sendSoloTicTacToe(soloTicTacToeGames[socket.id]);
+    beginSoloTicTacToe(difficulty);
   });
 
   socket.on("resetTicTacToeComputer", () => {
@@ -352,11 +376,11 @@ socket.on("NewGameResponseRPS", (data) => {
       return;
     }
 
-    soloTicTacToeGames[socket.id] = createSoloTicTacToe(existing.difficulty);
-    sendSoloTicTacToe(soloTicTacToeGames[socket.id]);
+    beginSoloTicTacToe(existing.difficulty);
   });
 
   socket.on("leaveTicTacToeComputer", () => {
+    clearComputerMatchClock(soloTicTacToeGames[socket.id]);
     delete soloTicTacToeGames[socket.id];
   });
 
@@ -365,11 +389,20 @@ socket.on("NewGameResponseRPS", (data) => {
     const outcome = playComputerTurn(game, data && data.index);
 
     if (!outcome.ok) {
+      if (game && outcome.reason === "time-up") {
+        clearComputerMatchClock(game);
+        publishSoloTicTacToe(game);
+        return;
+      }
       socket.emit("tttComputerRejected", { reason: outcome.reason });
       return;
     }
 
-    socket.emit("tttComputerState", outcome);
+    if (outcome.result !== "playing") {
+      clearComputerMatchClock(game);
+    }
+
+    publishSoloTicTacToe(game);
   });
 
   // === Tic Tac Toe Events ===

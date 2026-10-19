@@ -15,6 +15,9 @@ let computerMode = false;
 let computerDifficulty = "easy";
 let tttComputerWaiting = false;
 let tttComputerOver = false;
+let computerGameId = null;
+let acceptNextComputerGame = false;
+let computerCountdown = null;
 
 const boxes = document.querySelectorAll(".box");
 const resetButton = document.querySelector("#reset-btn");
@@ -233,10 +236,48 @@ function showComputerNotice(message) {
   if (notice) notice.innerText = message;
 }
 
+function clearComputerCountdown() {
+  if (computerCountdown) {
+    clearInterval(computerCountdown);
+    computerCountdown = null;
+  }
+}
+
+function hideComputerTimer() {
+  clearComputerCountdown();
+  const timer = document.getElementById("tttComputerTimer");
+  if (!timer) return;
+  timer.style.display = "none";
+  timer.innerText = "";
+}
+
+function showComputerCountdown(endsAt, serverNow) {
+  clearComputerCountdown();
+  const timer = document.getElementById("tttComputerTimer");
+  if (!timer || typeof endsAt !== "number" || typeof serverNow !== "number") return;
+
+  const clockOffset = serverNow - Date.now();
+  timer.style.display = "block";
+
+  const tick = () => {
+    const serverEstimate = Date.now() + clockOffset;
+    const remaining = endsAt - serverEstimate;
+    const seconds = Math.max(0, Math.ceil(remaining / 1000));
+    timer.innerText = "Time: " + seconds;
+    if (remaining <= 0) clearComputerCountdown();
+  };
+
+  tick();
+  computerCountdown = setInterval(tick, 250);
+}
+
 function showModeSelect() {
   computerMode = false;
   tttComputerWaiting = false;
   tttComputerOver = false;
+  computerGameId = null;
+  acceptNextComputerGame = false;
+  hideComputerTimer();
   document.getElementById("xyz").style.display = "block";
   document.getElementById("modeSelect").style.display = "block";
   document.getElementById("computerDifficulty").style.display = "none";
@@ -247,6 +288,7 @@ function showModeSelect() {
 }
 
 function showFriendMode() {
+  hideComputerTimer();
   document.getElementById("modeSelect").style.display = "none";
   document.getElementById("computerDifficulty").style.display = "none";
   document.getElementById("computerControls").style.display = "none";
@@ -277,24 +319,42 @@ function renderComputerBoard(board) {
 }
 
 function applyComputerState(data) {
+  if (data.gameId != null) {
+    if (acceptNextComputerGame) {
+      computerGameId = data.gameId;
+      acceptNextComputerGame = false;
+    } else if (data.gameId !== computerGameId) {
+      return;
+    }
+  }
+
   tttComputerWaiting = false;
   renderComputerBoard(data.board);
   const status = document.getElementById("tttComputerStatus");
   if (data.result === "x-win") {
     tttComputerOver = true;
     status.innerText = "You win";
+    hideComputerTimer();
     disableBoxes();
   } else if (data.result === "o-win") {
     tttComputerOver = true;
     status.innerText = "Computer wins";
+    hideComputerTimer();
+    disableBoxes();
+  } else if (data.result === "time-up") {
+    tttComputerOver = true;
+    status.innerText = "Time's up! Match drawn.";
+    hideComputerTimer();
     disableBoxes();
   } else if (data.result === "draw") {
     tttComputerOver = true;
     status.innerText = "It's a draw";
+    hideComputerTimer();
     disableBoxes();
   } else {
     tttComputerOver = false;
     status.innerText = "You are X. Your turn.";
+    showComputerCountdown(data.endsAt, data.serverNow);
   }
 }
 
@@ -307,6 +367,8 @@ function startComputerMode(difficulty) {
   computerDifficulty = difficulty;
   tttComputerOver = false;
   tttComputerWaiting = true;
+  acceptNextComputerGame = true;
+  computerGameId = null;
   showComputerNotice("");
   showComputerBoard();
   document.getElementById("computerDifficulty").style.display = "none";
@@ -325,6 +387,7 @@ function playComputerAgain() {
   }
   tttComputerOver = false;
   tttComputerWaiting = true;
+  acceptNextComputerGame = true;
   socket.emit("resetTicTacToeComputer");
 }
 

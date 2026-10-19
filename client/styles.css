@@ -8,10 +8,16 @@ body {
   text-align: center;
 }
 
+#tttComputerTimer {
+  font-size: 1.4rem;
+  margin-bottom: 0.5rem;
+}
+
 .containers {
   height: 70vh;
   /* // view port heigth 70% */
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
 }
