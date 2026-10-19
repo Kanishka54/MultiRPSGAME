@@ -16,8 +16,10 @@ let computerDifficulty = "easy";
 let tttComputerWaiting = false;
 let tttComputerOver = false;
 let computerGameId = null;
-let acceptNextComputerGame = false;
-let computerCountdown = null;
+let friendGameId = null;
+let friendMoveWaiting = false;
+let friendGameOver = false;
+const tttTimer = MatchTimer.attach(document.getElementById("tttComputerTimer"));
 
 const boxes = document.querySelectorAll(".box");
 const resetButton = document.querySelector("#reset-btn");
@@ -121,8 +123,6 @@ socket.on("ConfirmNewGameTicTacToe", (data) => {
       roomUniqueId: roomUniqueId,
     });
     newGameModal.style.display = "none";
-    alert("Starting New Game..");
-    newGameBtn();
   };
 
   newGameCancelBtn.onclick = function () {
@@ -180,10 +180,6 @@ socket.on("ConfirmResetGameTicTacToe", (data) => {
       roomUniqueId: roomUniqueId,
     });
     resetModal.style.display = "none";
-    ResetBtn();
-    isPlayer1Turn = true;
-    ok = false;
-    count = 0;
   };
 
   resetCancelBtn.onclick = function () {
@@ -236,39 +232,18 @@ function showComputerNotice(message) {
   if (notice) notice.innerText = message;
 }
 
-function clearComputerCountdown() {
-  if (computerCountdown) {
-    clearInterval(computerCountdown);
-    computerCountdown = null;
-  }
-}
-
 function hideComputerTimer() {
-  clearComputerCountdown();
-  const timer = document.getElementById("tttComputerTimer");
-  if (!timer) return;
-  timer.style.display = "none";
-  timer.innerText = "";
+  tttTimer.stop();
 }
 
 function showComputerCountdown(endsAt, serverNow) {
-  clearComputerCountdown();
-  const timer = document.getElementById("tttComputerTimer");
-  if (!timer || typeof endsAt !== "number" || typeof serverNow !== "number") return;
+  tttTimer.start(endsAt, serverNow);
+}
 
-  const clockOffset = serverNow - Date.now();
-  timer.style.display = "block";
-
-  const tick = () => {
-    const serverEstimate = Date.now() + clockOffset;
-    const remaining = endsAt - serverEstimate;
-    const seconds = Math.max(0, Math.ceil(remaining / 1000));
-    timer.innerText = "Time: " + seconds;
-    if (remaining <= 0) clearComputerCountdown();
-  };
-
-  tick();
-  computerCountdown = setInterval(tick, 250);
+function acceptsGameId(currentId, nextId) {
+  if (typeof nextId !== "number") return false;
+  if (currentId == null || nextId >= currentId) return true;
+  return false;
 }
 
 function showModeSelect() {
@@ -276,7 +251,6 @@ function showModeSelect() {
   tttComputerWaiting = false;
   tttComputerOver = false;
   computerGameId = null;
-  acceptNextComputerGame = false;
   hideComputerTimer();
   document.getElementById("xyz").style.display = "block";
   document.getElementById("modeSelect").style.display = "block";
@@ -319,14 +293,8 @@ function renderComputerBoard(board) {
 }
 
 function applyComputerState(data) {
-  if (data.gameId != null) {
-    if (acceptNextComputerGame) {
-      computerGameId = data.gameId;
-      acceptNextComputerGame = false;
-    } else if (data.gameId !== computerGameId) {
-      return;
-    }
-  }
+  if (!acceptsGameId(computerGameId, data.gameId)) return;
+  computerGameId = data.gameId;
 
   tttComputerWaiting = false;
   renderComputerBoard(data.board);
@@ -334,27 +302,29 @@ function applyComputerState(data) {
   if (data.result === "x-win") {
     tttComputerOver = true;
     status.innerText = "You win";
-    hideComputerTimer();
+    tttTimer.freeze();
     disableBoxes();
   } else if (data.result === "o-win") {
     tttComputerOver = true;
     status.innerText = "Computer wins";
-    hideComputerTimer();
+    tttTimer.freeze();
     disableBoxes();
   } else if (data.result === "time-up") {
     tttComputerOver = true;
     status.innerText = "Time's up! Match drawn.";
-    hideComputerTimer();
+    tttTimer.holdZero();
     disableBoxes();
   } else if (data.result === "draw") {
     tttComputerOver = true;
     status.innerText = "It's a draw";
-    hideComputerTimer();
+    tttTimer.freeze();
     disableBoxes();
   } else {
     tttComputerOver = false;
     status.innerText = "You are X. Your turn.";
     showComputerCountdown(data.endsAt, data.serverNow);
+    enabledBtn();
+    renderComputerBoard(data.board);
   }
 }
 
@@ -367,7 +337,6 @@ function startComputerMode(difficulty) {
   computerDifficulty = difficulty;
   tttComputerOver = false;
   tttComputerWaiting = true;
-  acceptNextComputerGame = true;
   computerGameId = null;
   showComputerNotice("");
   showComputerBoard();
@@ -387,7 +356,6 @@ function playComputerAgain() {
   }
   tttComputerOver = false;
   tttComputerWaiting = true;
-  acceptNextComputerGame = true;
   socket.emit("resetTicTacToeComputer");
 }
 
@@ -750,6 +718,8 @@ socket.on("playersConnectingTicTacToe", (data) => {
 
 socket.on("playersConnectedTicTacToe", (data) => {
   computerMode = false;
+  friendGameOver = false;
+  friendMoveWaiting = false;
   document.getElementById("computerControls").style.display = "none";
   document.getElementById("initial").style.display = "none";
   document.getElementById("gamePlay").style.display = "none";
@@ -762,18 +732,61 @@ socket.on("playersConnectedTicTacToe", (data) => {
   if (isPlayer1) {
     document.getElementById("ch1").innerText = "You: O";
     document.getElementById("ch2").innerText = "Opponent: X";
-    document.getElementById("opponentStateD1").innerText = "Your Turn...";
-    document.getElementById("opponentStateD2").innerText = "";
   } else {
     document.getElementById("ch1").innerText = "You: X";
     document.getElementById("ch2").innerText = "Opponent: O";
-    document.getElementById("opponentStateD1").innerText = "";
-    document.getElementById("opponentStateD2").innerText =
-      "Waiting For Opponent Move";
   }
 
+  if (data && Array.isArray(data.board)) {
+    applyFriendState(data);
+  }
   requestRoomData(roomUniqueId);
 });
+
+function applyFriendState(data) {
+  if (computerMode || !data) return;
+  if (!acceptsGameId(friendGameId, data.gameId)) return;
+  const isNewMatch = friendGameId !== data.gameId;
+  friendGameId = data.gameId;
+  friendMoveWaiting = false;
+  if (data.player1) player1Name = data.player1;
+  if (data.player2) player2Name = data.player2;
+
+  isPlayer1Turn = data.turn === "O";
+  updateBoxes((data.board || []).map((cell) => cell || ""));
+
+  if (data.result === "playing") {
+    friendGameOver = false;
+    messageContainer.classList.add("hide");
+    document.getElementById("gameAreaD").style.display = "block";
+    document.getElementById("btnreset").style.display = "block";
+    document.querySelector("main").style.display = "block";
+    updateTurnIndicators();
+    tttTimer.start(data.endsAt, data.serverNow);
+    return;
+  }
+
+  friendGameOver = true;
+  disableBoxes();
+  if (data.result === "time-up") {
+    tttTimer.holdZero();
+    document.getElementById("opponentStateD1").innerText = "Time's up! Match drawn.";
+    document.getElementById("opponentStateD2").innerText = "";
+    return;
+  }
+
+  tttTimer.freeze();
+  if (data.result === "draw") {
+    message.innerText = "OOPS DRAW!!";
+  } else if (data.result === "o-win") {
+    message.innerText = "Congratulations, Winner is " + data.player1;
+  } else if (data.result === "x-win") {
+    message.innerText = "Congratulations, Winner is " + data.player2;
+  }
+  messageContainer.classList.remove("hide");
+  document.getElementById("btnreset").style.display = "none";
+  if (isNewMatch) return;
+}
 
 socket.on("announceWinner", (data) => {
   // Accessing nested data properties correctly
@@ -886,6 +899,32 @@ socket.on("tttComputerState", (data) => {
   applyComputerState(data);
 });
 
+socket.on("tttFriendState", (data) => {
+  if (computerMode) return;
+  applyFriendState(data);
+});
+
+socket.on("tttFriendRejected", (data) => {
+  friendMoveWaiting = false;
+  if (!data) return;
+  if (data.reason === "game-over" || data.reason === "time-up") {
+    friendGameOver = true;
+    disableBoxes();
+  }
+});
+
+socket.on("tttOpponentLeft", () => {
+  if (computerMode) return;
+  tttTimer.stop();
+  friendGameOver = true;
+  friendGameId = null;
+  document.querySelector("main").style.display = "none";
+  document.getElementById("xyz").style.display = "block";
+  document.getElementById("initial").style.display = "block";
+  document.getElementById("gamePlay").style.display = "none";
+  alert("Your opponent disconnected. Please create or join a new game.");
+});
+
 socket.on("tttComputerRejected", (data) => {
   tttComputerWaiting = false;
   if (data && data.reason === "no-game") {
@@ -916,58 +955,14 @@ boxes.forEach((box, index) => {
       sendComputerCell(index);
       return;
     }
-    if (isPlayer1Turn && isPlayer1) {
-      box.innerText = "O";
-      box.classList.add("box0");
-      box.classList.remove("box1");
-      isPlayer1Turn = false;
-      box.disabled = true;
-
-      const boxesState = Array.from(boxes).map((b) => b.innerText);
-      count++;
-
-      socket.emit("player1Move", {
-        index,
-        boxes: boxesState,
-        isPlayer1Turn,
-        roomUniqueId,
-        symbol: "O",
-        count: count,
-      });
-
-      checkWinner();
-      if (count === 9 && ok === false) {
-        announceDraw();
-      }
-      updateTurnIndicators();
-    } else if (!isPlayer1Turn && !isPlayer1) {
-      box.innerText = "X";
-      box.classList.remove("box0");
-      box.classList.add("box1");
-      // isPlayer1Turn = true;
-      isPlayer1Turn = !isPlayer1;
-      box.disabled = true;
-
-      const boxesState = Array.from(boxes).map((b) => b.innerText);
-      count++;
-
-      socket.emit("player2Move", {
-        index,
-        boxes: boxesState,
-        isPlayer1Turn,
-        roomUniqueId,
-        symbol: "X",
-        count: count,
-      });
-
-      checkWinner();
-      if (count === 9 && ok === false) {
-        announceDraw();
-      }
-      updateTurnIndicators();
-    } else {
+    if (friendGameOver || friendMoveWaiting) return;
+    const myTurn = isPlayer1 ? isPlayer1Turn : !isPlayer1Turn;
+    if (!myTurn) {
       alert("Wait For Opponent's Turn");
+      return;
     }
+    friendMoveWaiting = true;
+    socket.emit("tttFriendMove", { roomUniqueId, index });
   });
 });
 

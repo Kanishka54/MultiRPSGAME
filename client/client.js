@@ -13,11 +13,23 @@ let playerName;
 let playerScore = 0;
 let computerScore = 0;
 let waitingForComputer = false;
+let rpsComputerGameId = null;
+let rpsFriendGameId = null;
+let rpsMatchOver = false;
+const rpsFriendTimer = MatchTimer.attach(document.getElementById("rpsFriendTimer"));
+const rpsComputerTimer = MatchTimer.attach(document.getElementById("rpsComputerTimer"));
+
+function acceptsRpsGame(currentId, nextId) {
+  return typeof nextId === "number" && (currentId == null || nextId >= currentId);
+}
 
 function showModeSelect() {
   waitingForComputer = false;
   playerScore = 0;
   computerScore = 0;
+  rpsComputerGameId = null;
+  rpsComputerTimer.stop();
+  if (socket.connected) socket.emit("leaveRPSComputer");
   document.getElementById("modeSelect").style.display = "block";
   document.getElementById("initial").style.display = "none";
   document.getElementById("gamePlay").style.display = "none";
@@ -35,12 +47,14 @@ function startComputerMode() {
   playerScore = 0;
   computerScore = 0;
   waitingForComputer = false;
+  rpsMatchOver = false;
   document.getElementById("modeSelect").style.display = "none";
   document.getElementById("initial").style.display = "none";
   document.getElementById("gamePlay").style.display = "none";
   document.getElementById("computerGame").style.display = "block";
   resetComputerRound();
   updateComputerScore();
+  socket.emit("startRPSComputer");
 }
 
 function updateComputerScore() {
@@ -62,11 +76,12 @@ function resetComputerRound() {
 }
 
 function playComputerAgain() {
-  resetComputerRound();
+  if (rpsMatchOver || waitingForComputer) return;
+  socket.emit("nextRPSComputerRound");
 }
 
 function sendComputerChoice(choice) {
-  if (waitingForComputer) return;
+  if (waitingForComputer || rpsMatchOver) return;
   waitingForComputer = true;
   socket.emit("playRPSComputer", { choice: choice });
 }
@@ -332,16 +347,16 @@ function requestRoomData(roomUniqueId) {
 
 socket.on("playersConnectedRPS", (data) => {
   requestRoomData(roomUniqueId);
+  rpsMatchOver = false;
   document.getElementById("initial").style.display = "none";
   document.getElementById("gamePlay").style.display = "block";
   document.getElementById("waitingArea").style.display = "none";
   document.getElementById("gameArea").style.display = "block";
-  if (isPlayer1Turn) {
-    document.getElementById("ch1").innerText = "You";
-    document.getElementById("ch2").innerText = "Opponent";
-  } else {
-    document.getElementById("ch1").innerText = "You";
-    document.getElementById("ch2").innerText = "Opponent";
+  document.getElementById("ch1").innerText = "You";
+  document.getElementById("ch2").innerText = "Opponent";
+  if (data && acceptsRpsGame(rpsFriendGameId, data.gameId)) {
+    rpsFriendGameId = data.gameId;
+    rpsFriendTimer.start(data.endsAt, data.serverNow);
   }
 });
 
@@ -352,7 +367,12 @@ socket.on("rpsChoiceSubmitted", () => {
   }
 });
 
-socket.on("rpsChoiceRejected", () => {
+socket.on("rpsChoiceRejected", (data) => {
+  if (rpsMatchOver) return;
+  if (data && (data.reason === "time-up" || data.reason === "game-over")) {
+    showFriendTimeUp();
+    return;
+  }
   hasSubmittedChoice = false;
   document.getElementById("player1Choice").innerHTML = `
         <button onclick="sendChoice('Rock')">Rock</button>
@@ -361,7 +381,30 @@ socket.on("rpsChoiceRejected", () => {
     `;
 });
 
+function showFriendTimeUp() {
+  rpsMatchOver = true;
+  hasSubmittedChoice = true;
+  rpsFriendTimer.holdZero();
+  document.getElementById("winnerText").innerText = "Time's up! Match drawn.";
+  document.getElementById("winnerArea").style.display = "block";
+}
+
+function resetFriendRound() {
+  hasSubmittedChoice = false;
+  document.getElementById("player1Choice").innerHTML = `
+        <button onclick="sendChoice('Rock')">Rock</button>
+        <button onclick="sendChoice('Paper')">Paper</button>
+        <button onclick="sendChoice('Scissors')">Scissors</button>
+    `;
+  document.getElementById("player2Choice").innerHTML =
+    '<p id="opponentState">Waiting For Opponent....</p>';
+  document.getElementById("winnerText").innerText = "";
+  document.getElementById("winnerArea").style.display = "none";
+}
+
 socket.on("rpsGameResult", (data) => {
+    if (!data || !acceptsRpsGame(rpsFriendGameId, data.gameId)) return;
+    rpsFriendGameId = data.gameId;
     const myChoice = isPlayer1Turn ? data.player1Choice : data.player2Choice;
     const opponentChoice = isPlayer1Turn ? data.player2Choice : data.player1Choice;
     let winnerMessage;
@@ -385,6 +428,7 @@ socket.on("rpsGameResult", (data) => {
     document.getElementById("gameArea").style.display = "block";
     document.getElementById("winnerArea").style.display = "block";
     document.getElementById("player1Choice").style.display = "block";
+    rpsFriendTimer.start(data.endsAt, data.serverNow);
 });
 
 socket.on("roomDataResponse", (data) => {
@@ -406,7 +450,7 @@ socket.on("FullRPS", () => {
 });
 
 function sendChoice(choice) {
-  if (hasSubmittedChoice) return;
+  if (hasSubmittedChoice || rpsMatchOver) return;
   hasSubmittedChoice = true;
   socket.emit("submitRPSChoice", { choice: choice, roomUniqueId });
   displayPlayerChoice(choice);
@@ -430,6 +474,12 @@ function revealOpponentChoice(choice) {
   opponentArea.appendChild(opponentButton);
 }
 const newGameBtn = document.getElementById("new-game");
+const nextRoundBtn = document.getElementById("next-round");
+
+nextRoundBtn.addEventListener("click", () => {
+  if (rpsMatchOver) return;
+  socket.emit("nextRPSRound", { roomUniqueId });
+});
 
 newGameBtn.addEventListener("click", () => {
     socket.emit("requestNewGameRPS", {
@@ -451,20 +501,25 @@ socket.on("ConfirmNewGameRPS", (data) => {
     });
 });
 
-socket.on("NewGameRPS", () => {
-    hasSubmittedChoice = false;
+socket.on("NewGameRPS", (data) => {
+    rpsMatchOver = false;
+    resetFriendRound();
+    if (data && acceptsRpsGame(rpsFriendGameId, data.gameId)) {
+      rpsFriendGameId = data.gameId;
+      rpsFriendTimer.start(data.endsAt, data.serverNow);
+    }
+});
 
-    document.getElementById("player1Choice").innerHTML = `
-        <button onclick="sendChoice('Rock')">Rock</button>
-        <button onclick="sendChoice('Paper')">Paper</button>
-        <button onclick="sendChoice('Scissors')">Scissors</button>
-    `;
+socket.on("rpsNextRound", (data) => {
+  if (!data || data.gameId !== rpsFriendGameId) return;
+  rpsMatchOver = false;
+  resetFriendRound();
+  rpsFriendTimer.start(data.endsAt, data.serverNow);
+});
 
-    document.getElementById("player2Choice").innerHTML =
-        '<p id="opponentState">Waiting For Opponent....</p>';
-
-    document.getElementById("winnerText").innerText = "";
-    document.getElementById("winnerArea").style.display = "none";
+socket.on("rpsTimeUp", (data) => {
+  if (data && data.gameId && data.gameId !== rpsFriendGameId) return;
+  showFriendTimeUp();
 }); 
 socket.on("CancelNewGameRPS", () => {
     alert("Opponent declined the new game request.");
@@ -474,6 +529,9 @@ function resetRPSToLobby() {
   hasSubmittedChoice = false;
   isPlayer1Turn = false;
   roomUniqueId = undefined;
+  rpsFriendGameId = null;
+  rpsMatchOver = false;
+  rpsFriendTimer.stop();
 
   document.getElementById("modeSelect").style.display = "none";
   document.getElementById("computerGame").style.display = "none";
@@ -504,12 +562,33 @@ socket.on("rpsRematchRejected", () => {
   }
 });
 
+socket.on("rpsComputerStarted", (data) => {
+  if (!data || !acceptsRpsGame(rpsComputerGameId, data.gameId)) return;
+  rpsComputerGameId = data.gameId;
+  rpsMatchOver = false;
+  waitingForComputer = false;
+  playerScore = data.playerScore;
+  computerScore = data.computerScore;
+  updateComputerScore();
+  resetComputerRound();
+  rpsComputerTimer.start(data.endsAt, data.serverNow);
+});
+
+socket.on("rpsComputerNext", (data) => {
+  if (!data || data.gameId !== rpsComputerGameId) return;
+  waitingForComputer = false;
+  rpsMatchOver = false;
+  playerScore = data.playerScore;
+  computerScore = data.computerScore;
+  updateComputerScore();
+  resetComputerRound();
+  rpsComputerTimer.start(data.endsAt, data.serverNow);
+});
+
 socket.on("rpsComputerResult", (data) => {
-  if (data.winner === "player1") {
-    playerScore += 1;
-  } else if (data.winner === "player2") {
-    computerScore += 1;
-  }
+  if (!data || data.gameId !== rpsComputerGameId) return;
+  playerScore = data.playerScore;
+  computerScore = data.computerScore;
 
   showComputerChoice("computerPlayerChoice", data.playerChoice);
   showComputerChoice("computerOpponentChoice", data.computerChoice);
@@ -524,6 +603,27 @@ socket.on("rpsComputerResult", (data) => {
 
   document.getElementById("computerResultText").innerText = resultText;
   document.getElementById("computerResult").style.display = "block";
+  waitingForComputer = false;
+  rpsComputerTimer.start(data.endsAt, data.serverNow);
+});
+
+socket.on("rpsComputerTimeUp", (data) => {
+  if (data && data.gameId && data.gameId !== rpsComputerGameId && rpsComputerGameId != null) {
+    return;
+  }
+  rpsMatchOver = true;
+  waitingForComputer = false;
+  if (data) {
+    playerScore = data.playerScore;
+    computerScore = data.computerScore;
+    updateComputerScore();
+  }
+  rpsComputerTimer.holdZero();
+  document.getElementById("computerResultText").innerText = "Time's up! Match drawn.";
+  document.getElementById("computerResult").style.display = "block";
+});
+
+socket.on("rpsComputerRejected", () => {
   waitingForComputer = false;
 });
 

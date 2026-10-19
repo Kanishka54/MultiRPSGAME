@@ -6,6 +6,7 @@
     <title>Rock Paper Scissors</title>
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="../newstyle.css" />
+    <link rel="stylesheet" href="../public/css/match-timer.css" />
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
@@ -59,6 +60,7 @@
 
       <div id="computerGame" class="card" style="display: none">
         <p id="computerScoreText">You: 0 &nbsp; Computer: 0</p>
+        <p id="rpsComputerTimer" class="match-timer"></p>
         <div id="computerGameArea">
           <div class="playerSection">
             <h2>You:</h2>
@@ -78,14 +80,18 @@
         <div id="computerResult" style="display: none">
           <hr />
           <h2 id="computerResultText"></h2>
-          <button id="computer-play-again" onclick="playComputerAgain()">
-            Play Again
-          </button>
         </div>
+        <button id="computer-play-again" onclick="playComputerAgain()">
+          Next Round
+        </button>
+        <button id="computer-new-match" onclick="startComputerMode()">
+          New Match
+        </button>
         <button onclick="showModeSelect()">Back</button>
       </div>
 
       <div id="gamePlay" class="card" style="display: none">
+        <p id="rpsFriendTimer" class="match-timer"></p>
         <div id="waitingArea"></div>
         <div id="socialShareButtons"></div>
         <div id="gameArea" style="display: none">
@@ -109,13 +115,15 @@
     <hr />
     <h2 id="winnerText"></h2>
 
+    <button id="next-round" type="button">Next Round</button>
     <button id="new-game">
-        New Game
+        New Match
     </button>
 </div>
       </div>
     </div>
 
+    <script src="../public/js/matchTimer.js"></script>
     <script src="../client.js"></script>
   </body>
 </html>

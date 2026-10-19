@@ -8,8 +8,7 @@ body {
   text-align: center;
 }
 
-#tttComputerTimer {
-  font-size: 1.4rem;
+#tttComputerTimer.match-timer {
   margin-bottom: 0.5rem;
 }
 

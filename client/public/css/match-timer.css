@@ -1,0 +1,31 @@
+.match-timer {
+  display: none;
+  margin: 12px auto;
+  width: fit-content;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(12, 12, 16, 0.88);
+  color: #ffffff;
+  font-family: "Courier New", monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: 1px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.match-timer.is-visible {
+  display: block;
+}
+
+.match-timer.is-urgent {
+  color: #ff2d2d;
+}
+
+@media (max-width: 600px) {
+  .match-timer {
+    font-size: 22px;
+    padding: 6px 14px;
+  }
+}

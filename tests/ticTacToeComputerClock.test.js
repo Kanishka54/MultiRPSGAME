@@ -145,4 +145,21 @@ describe("Tic Tac Toe computer match clock", () => {
     expect(game.status).toBe("playing");
     expect(expirations).toBe(0);
   });
+
+  test("discards the minimax move when the search finishes after the deadline", () => {
+    const game = createSoloTicTacToe("hard");
+    game.endsAt = 100;
+    let calls = 0;
+
+    const outcome = playComputerTurn(game, 0, undefined, () => {
+      calls += 1;
+      return calls === 1 ? 50 : 150;
+    });
+
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(outcome.result).toBe("time-up");
+    expect(game.board[0]).toBe("X");
+    expect(game.board.slice(1).every((cell) => cell == null)).toBe(true);
+    expect(game.status).toBe("time-up");
+  });
 });

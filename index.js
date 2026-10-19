@@ -15,17 +15,29 @@ const ChessData = require("./models/ChessData");
 const TicTacToeData = require("./models/TicTacToeData");
 const User = require("./models/User"); // Import User model
 const { submitRPSChoice } = require("./utils/submitRPSChoice");
-const playRPSAgainstComputer = require("./utils/playRPSAgainstComputer");
 const {
+  createRPSComputerMatch,
+  playRPSComputerRound,
+  nextRPSComputerRound,
+} = require("./utils/rpsComputerMatch");
+const {
+  createRPSFriendRoom,
+  renewRPSFriendMatch,
   removeRPSRoomsForSocket,
   requestRPSRematch,
   respondRPSRematch,
+  continueRPSRound,
 } = require("./utils/rpsRoom");
 const {
   createSoloTicTacToe,
   playComputerTurn,
   isComputerDifficulty,
 } = require("./utils/playTicTacToeAgainstComputer");
+const {
+  createFriendTicTacToe,
+  applyFriendTicTacToeMove,
+  resetFriendTicTacToe,
+} = require("./utils/ticTacToeFriendMatch");
 const {
   startComputerMatchClock,
   clearComputerMatchClock,
@@ -40,6 +52,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 const chessRooms = {};
 const ticTacToeRooms = {};
 const soloTicTacToeGames = {};
+const rpsComputerMatches = {};
 const rpsRooms = {};
 const LEVEL_UP_THRESHOLD = 10; // Number of games to level up
 
@@ -181,9 +194,55 @@ io.on("connection", (socket) => {
       io.socketsLeave(roomId);
     });
 
+    clearComputerMatchClock(rpsComputerMatches[socket.id]);
+    delete rpsComputerMatches[socket.id];
+
     clearComputerMatchClock(soloTicTacToeGames[socket.id]);
     delete soloTicTacToeGames[socket.id];
+
+    for (const [roomId, room] of Object.entries(ticTacToeRooms)) {
+      if (
+        room &&
+        (room.player1SocketId === socket.id || room.player2SocketId === socket.id)
+      ) {
+        clearComputerMatchClock(room);
+        delete ticTacToeRooms[roomId];
+        io.to(roomId).emit("tttOpponentLeft");
+        io.socketsLeave(roomId);
+      }
+    }
   });
+
+  function rpsFriendClockPayload(room) {
+    return {
+      endsAt: room.endsAt,
+      serverNow: Date.now(),
+      gameId: room.id,
+      status: room.status,
+    };
+  }
+
+  function startRPSFriendClock(roomUniqueId, room) {
+    startComputerMatchClock(room, {
+      isCurrent: (current) => rpsRooms[roomUniqueId] === current,
+      onExpire() {
+        if (rpsRooms[roomUniqueId] !== room) return;
+        clearComputerMatchClock(room);
+        io.to(roomUniqueId).emit("rpsTimeUp", rpsFriendClockPayload(room));
+      },
+    });
+  }
+
+  function rpsComputerView(match) {
+    return {
+      gameId: match.id,
+      endsAt: match.endsAt,
+      serverNow: Date.now(),
+      playerScore: match.playerScore,
+      computerScore: match.computerScore,
+      status: match.status,
+    };
+  }
 
   // === Rock Paper Scissors (RPS) Events ===
 
@@ -191,14 +250,7 @@ io.on("connection", (socket) => {
   socket.on("createRPSGame", async (data) => {
     try {
       const roomUniqueId = generateRoomId(5);
-      rpsRooms[roomUniqueId] = {
-        player1: data.playerName,
-        player1SocketId: socket.id,
-        capacity: true,
-        player1Choice: null,
-        player2Choice: null,
-        roundClosed: false,
-      };
+      rpsRooms[roomUniqueId] = createRPSFriendRoom(data.playerName, socket.id);
 
       socket.join(roomUniqueId);
       socket.emit("newRPSGame", { roomUniqueId });
@@ -221,14 +273,18 @@ io.on("connection", (socket) => {
         if (room.capacity === true) {
           room.player2 = data.playerName;
           room.player2SocketId = socket.id;
+          room.capacity = false;
+          room.status = "playing";
           socket.join(data.roomUniqueId);
-          io.to(data.roomUniqueId).emit("playersConnectedRPS");
-          socket.emit("playersConnectedRPS");
+          startRPSFriendClock(data.roomUniqueId, room);
+          io.to(data.roomUniqueId).emit(
+            "playersConnectedRPS",
+            rpsFriendClockPayload(room)
+          );
           await RPSData.findOneAndUpdate(
             { roomUniqueId: data.roomUniqueId },
             { player2Name: data.playerName }
           );
-          room.capacity = false;
         } else {
           socket.emit("FullRPS");
         }
@@ -238,16 +294,63 @@ io.on("connection", (socket) => {
     }
   });
 
+  function beginRPSComputerMatch() {
+    clearComputerMatchClock(rpsComputerMatches[socket.id]);
+    const match = createRPSComputerMatch();
+    rpsComputerMatches[socket.id] = match;
+    startComputerMatchClock(match, {
+      isCurrent: (current) => rpsComputerMatches[socket.id] === current,
+      onExpire() {
+        if (rpsComputerMatches[socket.id] !== match) return;
+        clearComputerMatchClock(match);
+        socket.emit("rpsComputerTimeUp", rpsComputerView(match));
+      },
+    });
+    socket.emit("rpsComputerStarted", rpsComputerView(match));
+  }
+
+  socket.on("startRPSComputer", () => {
+    beginRPSComputerMatch();
+  });
+
+  socket.on("leaveRPSComputer", () => {
+    clearComputerMatchClock(rpsComputerMatches[socket.id]);
+    delete rpsComputerMatches[socket.id];
+  });
+
+  socket.on("nextRPSComputerRound", () => {
+    const match = rpsComputerMatches[socket.id];
+    const outcome = nextRPSComputerRound(match);
+    if (!outcome.ok) {
+      if (match && outcome.reason === "time-up") {
+        clearComputerMatchClock(match);
+        socket.emit("rpsComputerTimeUp", rpsComputerView(match));
+        return;
+      }
+      socket.emit("rpsComputerRejected", { reason: outcome.reason });
+      return;
+    }
+
+    socket.emit("rpsComputerNext", rpsComputerView(match));
+  });
+
   socket.on("playRPSComputer", (data) => {
     const payload = data || {};
-    const outcome = playRPSAgainstComputer(payload.choice);
+    const match = rpsComputerMatches[socket.id];
+    const outcome = playRPSComputerRound(match, payload.choice);
 
     if (!outcome.ok) {
+      if (match && outcome.reason === "time-up") {
+        clearComputerMatchClock(match);
+        socket.emit("rpsComputerTimeUp", rpsComputerView(match));
+        return;
+      }
       socket.emit("rpsComputerRejected", { reason: outcome.reason });
       return;
     }
 
     socket.emit("rpsComputerResult", {
+      ...rpsComputerView(match),
       playerChoice: outcome.playerChoice,
       computerChoice: outcome.computerChoice,
       winner: outcome.winner,
@@ -261,6 +364,11 @@ io.on("connection", (socket) => {
       const outcome = submitRPSChoice(room, socket.id, payload.choice);
 
       if (!outcome.ok) {
+        if (room && outcome.reason === "time-up") {
+          clearComputerMatchClock(room);
+          io.to(payload.roomUniqueId).emit("rpsTimeUp", rpsFriendClockPayload(room));
+          return;
+        }
         socket.emit("rpsChoiceRejected", { reason: outcome.reason });
         return;
       }
@@ -276,6 +384,23 @@ io.on("connection", (socket) => {
     } catch (error) {
       console.error("Error handling RPS choice:", error);
     }
+  });
+
+  socket.on("nextRPSRound", (data) => {
+    const payload = data || {};
+    const room = rpsRooms[payload.roomUniqueId];
+    const outcome = continueRPSRound(room);
+    if (!outcome.ok) {
+      if (room && (outcome.reason === "time-up" || room.status === "time-up")) {
+        clearComputerMatchClock(room);
+        io.to(payload.roomUniqueId).emit("rpsTimeUp", rpsFriendClockPayload(room));
+        return;
+      }
+      socket.emit("rpsChoiceRejected", { reason: outcome.reason });
+      return;
+    }
+
+    io.to(payload.roomUniqueId).emit("rpsNextRound", rpsFriendClockPayload(room));
   });
 
   // Request Room Data for RPS
@@ -323,7 +448,10 @@ socket.on("NewGameResponseRPS", (data) => {
 
     if (decision.start) {
         console.log("Starting new game");
-        io.to(payload.roomUniqueId).emit("NewGameRPS");
+        const room = rpsRooms[payload.roomUniqueId];
+        renewRPSFriendMatch(room);
+        startRPSFriendClock(payload.roomUniqueId, room);
+        io.to(payload.roomUniqueId).emit("NewGameRPS", rpsFriendClockPayload(room));
     } else {
         console.log("New game declined");
         socket.to(payload.roomUniqueId).emit("CancelNewGameRPS");
@@ -405,14 +533,59 @@ socket.on("NewGameResponseRPS", (data) => {
     publishSoloTicTacToe(game);
   });
 
+  function friendTicTacToeView(room, result) {
+    return {
+      board: room.board.slice(),
+      result: result || (room.status === "playing" ? "playing" : room.status),
+      turn: room.turn,
+      endsAt: room.endsAt,
+      serverNow: Date.now(),
+      gameId: room.id,
+      player1: room.player1,
+      player2: room.player2,
+    };
+  }
+
+  function expireFriendTicTacToe(roomUniqueId, room) {
+    if (ticTacToeRooms[roomUniqueId] !== room) return;
+    if (room.recorded) return;
+    if (room.status !== "playing" && room.status !== "time-up") return;
+    room.status = "time-up";
+    room.recorded = true;
+    clearComputerMatchClock(room);
+    io.to(roomUniqueId).emit("tttFriendState", friendTicTacToeView(room, "time-up"));
+    recordTicTacToeResult(roomUniqueId, "Draw");
+  }
+
+  function startFriendTicTacToeClock(roomUniqueId, room) {
+    startComputerMatchClock(room, {
+      isCurrent: (current) => ticTacToeRooms[roomUniqueId] === current,
+      onExpire() {
+        expireFriendTicTacToe(roomUniqueId, room);
+      },
+    });
+  }
+
+  function restartFriendTicTacToe(roomUniqueId) {
+    const room = ticTacToeRooms[roomUniqueId];
+    if (!room || !room.player2SocketId) return null;
+    clearComputerMatchClock(room);
+    resetFriendTicTacToe(room);
+    startFriendTicTacToeClock(roomUniqueId, room);
+    io.to(roomUniqueId).emit("tttFriendState", friendTicTacToeView(room, "playing"));
+    return room;
+  }
+
   // === Tic Tac Toe Events ===
 
   // Create Tic Tac Toe Game
   socket.on("createTicTacToeGame", async (data) => {
     try {
       const roomUniqueId = generateRoomId(5);
-      ticTacToeRooms[roomUniqueId] = { player1: data.playerName };
-      ticTacToeRooms[roomUniqueId] = { capacity: true };
+      ticTacToeRooms[roomUniqueId] = createFriendTicTacToe(
+        data.playerName,
+        socket.id
+      );
       socket.join(roomUniqueId);
       socket.emit("playersConnectingTicTacToe", { roomUniqueId });
 
@@ -433,8 +606,15 @@ socket.on("NewGameResponseRPS", (data) => {
       if (room) {
         if (room.capacity === true) {
           room.player2 = data.playerName;
+          room.player2SocketId = socket.id;
+          room.capacity = false;
+          room.status = "playing";
           socket.join(data.roomUniqueId);
-          io.to(data.roomUniqueId).emit("playersConnectedTicTacToe");
+          startFriendTicTacToeClock(data.roomUniqueId, room);
+          io.to(data.roomUniqueId).emit(
+            "playersConnectedTicTacToe",
+            friendTicTacToeView(room, "playing")
+          );
           await TicTacToeData.findOneAndUpdate(
             { roomUniqueId: data.roomUniqueId },
             { player2Name: data.playerName }
@@ -449,25 +629,44 @@ socket.on("NewGameResponseRPS", (data) => {
     }
   });
 
-  // Player 1 Tic Tac Toe Move
-  socket.on("player1Move", (data) => {
-    const room = ticTacToeRooms[data.roomUniqueId];
-    socket.to(data.roomUniqueId).emit("player1Move", {
-      isPlayer1Turn: data.isPlayer1Turn,
-      boxes: data.boxes,
-      count: data.count,
-    });
+  socket.on("tttFriendMove", async (data) => {
+    const payload = data || {};
+    const room = ticTacToeRooms[payload.roomUniqueId];
+    const outcome = applyFriendTicTacToeMove(room, socket.id, payload.index);
+
+    if (!outcome.ok) {
+      if (room && outcome.reason === "time-up") {
+        expireFriendTicTacToe(payload.roomUniqueId, room);
+        return;
+      }
+      socket.emit("tttFriendRejected", {
+        reason: outcome.reason,
+        gameId: room && room.id,
+      });
+      return;
+    }
+
+    if (outcome.result !== "playing" && !room.recorded) {
+      room.recorded = true;
+      clearComputerMatchClock(room);
+      const winnerLabel =
+        outcome.result === "o-win"
+          ? room.player1
+          : outcome.result === "x-win"
+            ? room.player2
+            : "Draw";
+      await recordTicTacToeResult(payload.roomUniqueId, winnerLabel);
+    }
+
+    io.to(payload.roomUniqueId).emit(
+      "tttFriendState",
+      friendTicTacToeView(room, outcome.result)
+    );
   });
 
-  // Player 2 Tic Tac Toe Move
-  socket.on("player2Move", (data) => {
-    const room = ticTacToeRooms[data.roomUniqueId];
-    socket.to(data.roomUniqueId).emit("player2Move", {
-      isPlayer1Turn: data.isPlayer1Turn,
-      boxes: data.boxes,
-      count: data.count,
-    });
-  });
+  socket.on("player1Move", () => {});
+
+  socket.on("player2Move", () => {});
 
   // Announce Tic Tac Toe Winner
   socket.on("announceWinner", async (data) => {
@@ -542,7 +741,9 @@ socket.on("NewGameResponseRPS", (data) => {
 
   socket.on("resetResponseTicTacToe", ({ response, roomUniqueId }) => {
     if (response === true) {
-      socket.to(roomUniqueId).emit("resetingTicTacToe");
+      if (!restartFriendTicTacToe(roomUniqueId)) {
+        socket.emit("tttFriendRejected", { reason: "no-game" });
+      }
     } else {
       socket.to(roomUniqueId).emit("CancelingRequestResetGameTicTacToc");
     }
@@ -555,7 +756,9 @@ socket.on("NewGameResponseRPS", (data) => {
   });
   socket.on("NewGameResponseTicTacToe", ({ response, roomUniqueId }) => {
     if (response === true) {
-      socket.to(roomUniqueId).emit("NewGameTicTacToe");
+      if (!restartFriendTicTacToe(roomUniqueId)) {
+        socket.emit("tttFriendRejected", { reason: "no-game" });
+      }
     } else {
       socket.to(roomUniqueId).emit("CancelingRequestNewGameTicTacToc");
     }
@@ -665,10 +868,14 @@ socket.on("NewGameResponseRPS", (data) => {
 });
 
 async function finishRPSRound(roomUniqueId, result) {
+  const room = rpsRooms[roomUniqueId];
   io.to(roomUniqueId).emit("rpsGameResult", {
     winner: result.winner,
     player1Choice: result.player1Choice,
     player2Choice: result.player2Choice,
+    endsAt: room && room.endsAt,
+    serverNow: Date.now(),
+    gameId: room && room.id,
   });
 
   await RPSData.findOneAndUpdate(
@@ -699,6 +906,26 @@ async function finishRPSRound(roomUniqueId, result) {
     if (player2) {
       updateUserGameCount(player2._id);
     }
+  }
+}
+
+async function recordTicTacToeResult(roomUniqueId, winnerLabel) {
+  try {
+    await TicTacToeData.findOneAndUpdate(
+      { roomUniqueId },
+      { $push: { winner: winnerLabel } },
+      { new: true }
+    );
+
+    const gameData = await TicTacToeData.findOne({ roomUniqueId });
+    if (!gameData) return;
+
+    const player1 = await User.findOne({ username: gameData.player1Name });
+    const player2 = await User.findOne({ username: gameData.player2Name });
+    if (player1) updateUserGameCount(player1._id);
+    if (player2) updateUserGameCount(player2._id);
+  } catch (error) {
+    console.error("Error recording Tic Tac Toe result:", error);
   }
 }
 

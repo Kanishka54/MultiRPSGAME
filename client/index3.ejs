@@ -7,6 +7,7 @@
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="../newstyle.css" />
     <link rel="stylesheet" href="../styles.css" />
+    <link rel="stylesheet" href="../public/css/match-timer.css" />
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
@@ -90,7 +91,7 @@
       </div>
 
       <div class="containers">
-        <p id="tttComputerTimer" style="display: none"></p>
+        <p id="tttComputerTimer" class="match-timer"></p>
         <div class="game">
           <% for (let i = 0; i < 9; i++) { %>
           <button class="box" data-index="<%= i %>"></button>
@@ -124,6 +125,7 @@
       </div>
     </div>
 
+    <script src="../public/js/matchTimer.js"></script>
     <script src="../script.js"></script>
   </body>
 </html>
