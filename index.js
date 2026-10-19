@@ -15,6 +15,7 @@ const ChessData = require("./models/ChessData");
 const TicTacToeData = require("./models/TicTacToeData");
 const User = require("./models/User"); // Import User model
 const { submitRPSChoice } = require("./utils/submitRPSChoice");
+const playRPSAgainstComputer = require("./utils/playRPSAgainstComputer");
 const {
   removeRPSRoomsForSocket,
   requestRPSRematch,
@@ -222,6 +223,22 @@ io.on("connection", (socket) => {
     } catch (error) {
       console.error("Error joining RPS game:", error);
     }
+  });
+
+  socket.on("playRPSComputer", (data) => {
+    const payload = data || {};
+    const outcome = playRPSAgainstComputer(payload.choice);
+
+    if (!outcome.ok) {
+      socket.emit("rpsComputerRejected", { reason: outcome.reason });
+      return;
+    }
+
+    socket.emit("rpsComputerResult", {
+      playerChoice: outcome.playerChoice,
+      computerChoice: outcome.computerChoice,
+      winner: outcome.winner,
+    });
   });
 
   socket.on("submitRPSChoice", async (data) => {

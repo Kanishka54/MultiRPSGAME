@@ -32,7 +32,12 @@
       <header>
         <h1>Rock Paper Scissors</h1>
       </header>
-      <div id="initial" class="card">
+      <div id="modeSelect" class="card">
+        <button onclick="showFriendMode()">Play with Friend</button>
+        <button onclick="startComputerMode()">Play with Computer</button>
+      </div>
+
+      <div id="initial" class="card" style="display: none">
         <input
           type="text"
           id="playerName"
@@ -49,6 +54,35 @@
           required
         />
         <button onclick="joinGame()">Join Game</button>
+        <button onclick="showModeSelect()">Back</button>
+      </div>
+
+      <div id="computerGame" class="card" style="display: none">
+        <p id="computerScoreText">You: 0 &nbsp; Computer: 0</p>
+        <div id="computerGameArea">
+          <div class="playerSection">
+            <h2>You:</h2>
+            <div id="computerPlayerChoice">
+              <button onclick="sendComputerChoice('Rock')">Rock</button>
+              <button onclick="sendComputerChoice('Paper')">Paper</button>
+              <button onclick="sendComputerChoice('Scissors')">Scissors</button>
+            </div>
+          </div>
+          <div class="playerSection">
+            <h2>Computer:</h2>
+            <div id="computerOpponentChoice">
+              <p id="computerState">Make a choice</p>
+            </div>
+          </div>
+        </div>
+        <div id="computerResult" style="display: none">
+          <hr />
+          <h2 id="computerResultText"></h2>
+          <button id="computer-play-again" onclick="playComputerAgain()">
+            Play Again
+          </button>
+        </div>
+        <button onclick="showModeSelect()">Back</button>
       </div>
 
       <div id="gamePlay" class="card" style="display: none">

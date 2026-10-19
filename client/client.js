@@ -10,6 +10,75 @@ let player2Name = "SAMPLE";
 let isPlayer1Turn = false;
 let playerName;
 
+let playerScore = 0;
+let computerScore = 0;
+let waitingForComputer = false;
+
+function showModeSelect() {
+  waitingForComputer = false;
+  playerScore = 0;
+  computerScore = 0;
+  document.getElementById("modeSelect").style.display = "block";
+  document.getElementById("initial").style.display = "none";
+  document.getElementById("gamePlay").style.display = "none";
+  document.getElementById("computerGame").style.display = "none";
+}
+
+function showFriendMode() {
+  document.getElementById("modeSelect").style.display = "none";
+  document.getElementById("computerGame").style.display = "none";
+  document.getElementById("gamePlay").style.display = "none";
+  document.getElementById("initial").style.display = "block";
+}
+
+function startComputerMode() {
+  playerScore = 0;
+  computerScore = 0;
+  waitingForComputer = false;
+  document.getElementById("modeSelect").style.display = "none";
+  document.getElementById("initial").style.display = "none";
+  document.getElementById("gamePlay").style.display = "none";
+  document.getElementById("computerGame").style.display = "block";
+  resetComputerRound();
+  updateComputerScore();
+}
+
+function updateComputerScore() {
+  document.getElementById("computerScoreText").innerText =
+    "You: " + playerScore + "  Computer: " + computerScore;
+}
+
+function resetComputerRound() {
+  waitingForComputer = false;
+  document.getElementById("computerPlayerChoice").innerHTML = `
+        <button onclick="sendComputerChoice('Rock')">Rock</button>
+        <button onclick="sendComputerChoice('Paper')">Paper</button>
+        <button onclick="sendComputerChoice('Scissors')">Scissors</button>
+    `;
+  document.getElementById("computerOpponentChoice").innerHTML =
+    '<p id="computerState">Make a choice</p>';
+  document.getElementById("computerResultText").innerText = "";
+  document.getElementById("computerResult").style.display = "none";
+}
+
+function playComputerAgain() {
+  resetComputerRound();
+}
+
+function sendComputerChoice(choice) {
+  if (waitingForComputer) return;
+  waitingForComputer = true;
+  socket.emit("playRPSComputer", { choice: choice });
+}
+
+function showComputerChoice(elementId, choice) {
+  const area = document.getElementById(elementId);
+  area.innerHTML = "";
+  const choiceButton = document.createElement("button");
+  choiceButton.innerText = choice;
+  area.appendChild(choiceButton);
+}
+
 function createGame() {
   isPlayer1Turn = true;
   playerName = document.getElementById("playerName").value;
@@ -406,6 +475,8 @@ function resetRPSToLobby() {
   isPlayer1Turn = false;
   roomUniqueId = undefined;
 
+  document.getElementById("modeSelect").style.display = "none";
+  document.getElementById("computerGame").style.display = "none";
   document.getElementById("initial").style.display = "block";
   document.getElementById("gamePlay").style.display = "none";
   document.getElementById("waitingArea").innerHTML = "";
@@ -431,4 +502,31 @@ socket.on("rpsRematchRejected", () => {
   if (gamePlay && gamePlay.style.display !== "none") {
     resetRPSToLobby();
   }
+});
+
+socket.on("rpsComputerResult", (data) => {
+  if (data.winner === "player1") {
+    playerScore += 1;
+  } else if (data.winner === "player2") {
+    computerScore += 1;
+  }
+
+  showComputerChoice("computerPlayerChoice", data.playerChoice);
+  showComputerChoice("computerOpponentChoice", data.computerChoice);
+  updateComputerScore();
+
+  let resultText = "It's a draw";
+  if (data.winner === "player1") {
+    resultText = "You Win";
+  } else if (data.winner === "player2") {
+    resultText = "You Lose";
+  }
+
+  document.getElementById("computerResultText").innerText = resultText;
+  document.getElementById("computerResult").style.display = "block";
+  waitingForComputer = false;
+});
+
+socket.on("rpsComputerRejected", () => {
+  waitingForComputer = false;
 });

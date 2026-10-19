@@ -68,10 +68,16 @@ button:hover {
   background-color: #0bf217;
 }
 
-#gameArea {
+#gameArea,
+#computerGameArea {
   display: flex;
   justify-content: space-around;
   margin-top: 20px;
+}
+
+#computerScoreText {
+  font-size: 1.2em;
+  margin: 0;
 }
 
 .playerSection {
